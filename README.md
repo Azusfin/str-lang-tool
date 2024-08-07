@@ -16,7 +16,7 @@ https://azusfin.github.io/str-lang-tool
 ```js
 // Reads a mathematical expression then parse the numbers, operands, and brackets while ignoring spaces
 
-const { Reader, ScalarReadFeature, NestedReadFeature } = require("str-lang-tool")
+const { Reader, BaseReadFeature, ScalarReadFeature, NestedReadFeature } = require("str-lang-tool")
 
 const numberChars = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 const numberSymbol = Symbol("NUMBER")
@@ -43,14 +43,14 @@ class OperandReadFeature extends ScalarReadFeature {
 }
 
 const bracketChars = ["(", ")"]
-const bracketSymbol = SYMBOL("BRACKET")
+const bracketSymbol = Symbol("BRACKET")
 class BracketReadFeature extends NestedReadFeature {
     constructor(reader, factories) {
         super(reader, bracketSymbol, bracketChars, factories)
     }
 }
 
-class IgnoreSpaceReadFeature {
+class IgnoreSpaceReadFeature extends BaseReadFeature {
     claim(char, _pos) { return char === " " }
     next() { this.release() }
     handleRelease() {}
