@@ -1,0 +1,44 @@
+{
+  "name": "str-lang-tool",
+  "version": "1.0.0",
+  "description": "A structured way to parse text for a language",
+  "main": "dist/index.js",
+  "typings": "dist/index.d.ts",
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
+  ],
+  "scripts": {
+    "start": "node .",
+    "lint": "eslint --ext .ts",
+    "build": "tsc --outDir dist",
+    "test": "node dist/__tests__/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Azusfin/str-lang-tool.git"
+  },
+  "keywords": [
+    "str",
+    "string",
+    "lang",
+    "language",
+    "lang-tool",
+    "language-tool"
+  ],
+  "author": "Azusfin",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Azusfin/str-lang-tool/issues"
+  },
+  "homepage": "https://github.com/Azusfin/str-lang-tool#readme",
+  "devDependencies": {
+    "@azusfin/eslint-config": "^1.2.1",
+    "@types/node": "^22.1.0",
+    "@typescript-eslint/eslint-plugin": "^5.18.0",
+    "@typescript-eslint/parser": "^5.18.0",
+    "eslint": "^8.13.0",
+    "typescript": "4.6.x",
+    "benny": "^3.7.1"
+  }
+}
