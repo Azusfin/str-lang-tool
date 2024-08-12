@@ -1,6 +1,7 @@
 import type { Reader } from "."
 import type { Block, BlockNested } from "../blocks"
 import { BlockType } from "../blocks"
+import { ReadError } from "."
 
 export abstract class BaseReadFeature {
     protected reader: Reader
@@ -20,7 +21,7 @@ export abstract class BaseReadFeature {
     public abstract next(char: string, pos: number): void
 
     /** How should the feature handle first character */
-    public abstract claim(char: string, pos: number): boolean
+    public abstract accept(char: string, pos: number): boolean
 }
 
 export abstract class ScalarReadFeature extends BaseReadFeature {
@@ -38,7 +39,7 @@ export abstract class ScalarReadFeature extends BaseReadFeature {
     /** How should the scalar feature handle every character */
     public abstract handleNext(char: string, pos: number): string | undefined
 
-    public claim(char: string, pos: number): boolean {
+    public accept(char: string, pos: number): boolean {
         if (this.starterChars.includes(char)) {
             this.startPos = pos
             return true
@@ -72,6 +73,8 @@ export class NestedReadFeature extends BaseReadFeature {
     protected startWindow?: Block[]
     protected block: BlockNested
 
+    protected done = false
+
     public constructor(reader: Reader, symbol: symbol, brackets: [string, string], factories: ReadFeatureFactory[]) {
         super(reader)
         this.symbol = symbol
@@ -86,7 +89,12 @@ export class NestedReadFeature extends BaseReadFeature {
         }
     }
 
-    public claim(char: string, pos: number): boolean {
+    protected release(): void {
+        this.done = true
+        super.release()
+    }
+
+    public accept(char: string, pos: number): boolean {
         if (char === this.brackets[0]) {
             this.block.from = pos
             this.startWindow = this.reader.getWindow()
@@ -104,6 +112,10 @@ export class NestedReadFeature extends BaseReadFeature {
     }
 
     public handleRelease(): void {
+        if (!this.done) {
+            throw new ReadError("Unexpected end of line", this.reader.getPos() - 1)
+        }
+
         this.block.to = this.reader.getPos()
         this.reader.setWindow(this.startWindow)
     }

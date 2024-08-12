@@ -1,4 +1,4 @@
-import type { ReadFeatureFactory, Block } from "../"
+import type { ReadFeatureFactory } from "../"
 import { Reader, ScalarReadFeature, NestedReadFeature, BaseReadFeature } from "../"
 import { readFileSync } from "fs"
 import { inspect } from "util"
@@ -17,10 +17,10 @@ for (let i = 65; i <= 90; i++) {
 const operandChars: string[] = ["+", "-", "*", "/", "^"]
 const brackets: [string, string] = ["(", ")"]
 
+export const bracketFeatureSymbol = Symbol("BRACKET")
+export const operandFeatureSymbol = Symbol("OPERAND")
 export const numberFeatureSymbol = Symbol("NUMBER")
 export const nameFeatureSymbol = Symbol("NAME")
-export const operandFeatureSymbol = Symbol("OPERAND")
-export const bracketFeatureSymbol = Symbol("BRACKET")
 
 class NumberReadFeature extends ScalarReadFeature {
     public constructor(reader: Reader) {
@@ -59,7 +59,7 @@ class BracketReadFeature extends NestedReadFeature {
 }
 
 class IgnoreSpaceReadFeature extends BaseReadFeature {
-    public claim(char: string, pos: number): boolean {
+    public accept(char: string, pos: number): boolean {
         if (char === " " || char === "\n") return true
         return false
     }
@@ -72,11 +72,11 @@ class IgnoreSpaceReadFeature extends BaseReadFeature {
 }
 
 export const factories: ReadFeatureFactory[] = [
-    (reader: Reader) => new NumberReadFeature(reader),
-    (reader: Reader) => new NameReadFeature(reader),
-    (reader: Reader) => new OperandReadFeature(reader),
+    (reader: Reader) => new IgnoreSpaceReadFeature(reader),
     (reader: Reader) => new BracketReadFeature(reader),
-    (reader: Reader) => new IgnoreSpaceReadFeature(reader)
+    (reader: Reader) => new OperandReadFeature(reader),
+    (reader: Reader) => new NumberReadFeature(reader),
+    (reader: Reader) => new NameReadFeature(reader)
 ]
 
 export const text = readFileSync("./tests/test.txt", "utf-8")

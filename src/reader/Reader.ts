@@ -1,6 +1,6 @@
 import type { ReadFeature, ReadFeatureFactory } from "."
 import type { Block, BlockDefault } from "../blocks"
-import { NestedReadFeature, ReadError } from "."
+import { ReadError } from "."
 import { BlockType } from "../blocks"
 
 export interface ReaderOptions {
@@ -69,9 +69,9 @@ export class Reader {
     public handleFactories(factories: ReadFeatureFactory[], char: string, pos: number): void {
         for (const factory of factories) {
             const feature = factory(this)
-            const claimed = feature.claim(char, pos)
+            const accepted = feature.accept(char, pos)
 
-            if (claimed) {
+            if (accepted) {
                 this.features.push(feature)
                 feature.next(char, pos)
                 return
@@ -93,11 +93,8 @@ export class Reader {
             this.next()
         }
 
-        if (this.features.length > 0) {
-            const feature = this.features[this.features.length - 1]
-            if (feature instanceof NestedReadFeature || this.features.length > 1) {
-                throw new ReadError("Unexpected end of line", this.position-1)
-            }
+        for (let i = this.features.length; i > 0; i--) {
+            const feature = this.features[i-1]
             this.release(feature)
         }
     }
