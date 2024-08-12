@@ -27,7 +27,7 @@ class NumberReadFeature extends ScalarReadFeature {
         super(reader, numberFeatureSymbol, numberChars)
     }
 
-    public handleNext(char: string, _pos: number): string | undefined {
+    public handle(char: string, _pos: number): string | undefined {
         if (numberChars.includes(char)) return char
     }
 }
@@ -37,7 +37,7 @@ class NameReadFeature extends ScalarReadFeature {
         super(reader, nameFeatureSymbol, alphabetChars)
     }
 
-    public handleNext(char: string, pos: number): string | undefined {
+    public handle(char: string, pos: number): string | undefined {
         if (alphabetChars.includes(char)) return char
     }
 }
@@ -47,7 +47,7 @@ class OperandReadFeature extends ScalarReadFeature {
         super(reader, operandFeatureSymbol, operandChars)
     }
 
-    public handleNext(char: string, _pos: number): string | undefined {
+    public handle(char: string, _pos: number): string | undefined {
         if (operandChars.includes(char)) return char
     }
 }

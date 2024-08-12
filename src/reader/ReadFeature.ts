@@ -37,7 +37,7 @@ export abstract class ScalarReadFeature extends BaseReadFeature {
     }
 
     /** How should the scalar feature handle every character */
-    public abstract handleNext(char: string, pos: number): string | undefined
+    public abstract handle(char: string, pos: number): string | undefined
 
     public accept(char: string, pos: number): boolean {
         if (this.starterChars.includes(char)) {
@@ -48,13 +48,12 @@ export abstract class ScalarReadFeature extends BaseReadFeature {
     }
 
     public next(char: string, pos: number): void {
-        const handledChar = this.handleNext(char, pos)
+        const handledChar = this.handle(char, pos)
         if (handledChar === undefined) this.release()
         else this.value += handledChar
     }
 
     public handleRelease(): void {
-        this.reader.rollback()
         this.reader.addBlock({
             type: BlockType.SCALAR,
             value: this.value,
@@ -62,6 +61,11 @@ export abstract class ScalarReadFeature extends BaseReadFeature {
             from: this.startPos,
             to: this.reader.getPos()
         })
+    }
+
+    protected release(): void {
+        this.reader.rollback()
+        super.release()
     }
 }
 

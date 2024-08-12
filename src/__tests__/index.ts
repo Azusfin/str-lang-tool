@@ -2,6 +2,7 @@ import benny from "benny"
 import { Reader, Transformer } from "../"
 
 import { text, blocks, factories as readerFactories } from "./read"
+console.log()
 import { factories as transformerFactories } from "./transform"
 
 console.log()
