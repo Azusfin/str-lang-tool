@@ -86,7 +86,6 @@ abstract class OperandTransformFeature extends TransformFeature<Node> {
     protected abstract level: OPERAND_LEVEL
     protected abstract factory: OperandTransformFeatureFactory
 
-    protected block?: BlockNested<Node>
     protected prevVal?: BlockWithT<Node>
 
     public setInitialVal(val: BlockWithT<Node>): void {
@@ -96,11 +95,15 @@ abstract class OperandTransformFeature extends TransformFeature<Node> {
     }
 
     protected claim(block: Block): boolean {
-        if (this.block) this.handleBlockDone()
         if (block.type === BlockType.DEFAULT) throw new TransformError("Unexpected character block")
         if (block.type === BlockType.SCALAR) {
             if (block.symbol === nameFeatureSymbol) {
-                this.handleBlockStart(block)
+                this.transferHandle(block, {
+                    type: BlockType.NEST,
+                    value: [],
+                    symbol: functionFeatureSymbol,
+                    from: block.from
+                }, [t => new FunctionTransformFeature(t)])
             } else if (block.symbol === operandFeatureSymbol) {
                 if (getOperandLevel(block.value as OP) < this.level) {
                     if (this.level === OPERAND_LEVEL.ADD_SUB) {
@@ -108,7 +111,19 @@ abstract class OperandTransformFeature extends TransformFeature<Node> {
                     }
                     return false
                 } else if (getOperandLevel(block.value as OP) > this.level) {
-                    this.handleBlockStart(block)
+                    this.transferHandle(block, {
+                        type: BlockType.NEST,
+                        value: [],
+                        symbol: opLevelFeatureSymbol,
+                        from: this.prevVal!.from
+                    }, [() => {
+                        const feature = this.factory(this.transformer)
+                        feature.setInitialVal(this.prevVal!)
+                        return feature
+                    }])
+
+                    this.blocks.pop()
+                    this.prevVal = this.blockTransfer
                 }
             }
         }
@@ -117,8 +132,6 @@ abstract class OperandTransformFeature extends TransformFeature<Node> {
     }
 
     protected handle(blocks: BlockWithT<Node>[]): void {
-        if (this.block) this.handleBlockDone()
-
         for (const block of blocks) {
             if (block.type === BlockType.SCALAR) {
                 if (block.symbol === numberFeatureSymbol) {
@@ -164,64 +177,11 @@ abstract class OperandTransformFeature extends TransformFeature<Node> {
     }
 
     protected handleBlock(block: Block): void {
-        const isOperand = block.type === BlockType.SCALAR && block.symbol === operandFeatureSymbol
-        if (isOperand && this.block) return
+        super.handleBlock(block)
 
-        if (this.block) this.blocks.push(this.block)
-        else super.handleBlock(block)
-
-        if (isOperand) return
+        if (block.type === BlockType.SCALAR && block.symbol === operandFeatureSymbol) return
 
         this.prevVal = this.blocks[this.blocks.length - 1]
-    }
-
-    protected handleBlockStart(block: Block): void {
-        const outputWindow: Node[] = []
-
-        if (block.type === BlockType.SCALAR && block.symbol === nameFeatureSymbol) {
-            this.block = {
-                type: BlockType.NEST,
-                value: outputWindow,
-                symbol: functionFeatureSymbol,
-                from: block.from,
-                to: 0
-            }
-
-            this.formerOutputWindow = this.transformer.getOutputWindow()
-            this.transformer.setOutputWindow(outputWindow)
-
-            this.transformer.handleFactories([t => new FunctionTransformFeature(t)], block)
-        } else {
-            this.block = {
-                type: BlockType.NEST,
-                value: outputWindow,
-                symbol: opLevelFeatureSymbol,
-                from: this.prevVal!.from,
-                to: 0
-            }
-
-            this.formerOutputWindow = this.transformer.getOutputWindow()
-            this.transformer.setOutputWindow(outputWindow)
-
-            const factory: OperandTransformFeatureFactory = () => {
-                const feature = this.factory(this.transformer)
-                feature.setInitialVal(this.prevVal!)
-                return feature
-            }
-
-            this.transformer.handleFactories([factory], block)
-
-            this.blocks.pop()
-            this.blocks.push(this.block)
-            this.prevVal = this.block
-        }
-    }
-
-    protected handleBlockDone(): void {
-        this.transformer.setOutputWindow(this.formerOutputWindow)
-        this.block!.to = this.block!.value[this.block!.value.length - 1].to
-        delete this.formerOutputWindow
-        delete this.block
     }
 }
 

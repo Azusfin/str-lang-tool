@@ -11,6 +11,8 @@ export abstract class TransformFeature<T = Block> {
     protected formerInputWindow?: Block[]
     protected formerOutputWindow?: T[]
 
+    protected blockTransfer?: BlockNested<T>
+
     public constructor(transformer: Transformer<T>) {
         this.transformer = transformer
     }
@@ -27,6 +29,7 @@ export abstract class TransformFeature<T = Block> {
     }
 
     public next(block: Block): void {
+        this.transferDoneHandle()
         const claimed = this.claim(block)
 
         if (claimed) {
@@ -38,6 +41,7 @@ export abstract class TransformFeature<T = Block> {
     }
 
     public handleRelease(): void {
+        this.transferDoneHandle()
         this.handle(this.blocks)
     }
 
@@ -58,7 +62,9 @@ export abstract class TransformFeature<T = Block> {
     }
 
     protected handleBlock(block: Block): void {
-        if (block.type === BlockType.NEST) {
+        if (this.blockTransfer) {
+            this.blocks.push(this.blockTransfer)
+        } else if (block.type === BlockType.NEST) {
             this.handlingNest = true
             this.blocks.push(this.handleBlockNested(block))
         } else {
@@ -86,6 +92,37 @@ export abstract class TransformFeature<T = Block> {
         this.handleNest(this.transformer.getBlock(0))
 
         return newBlock
+    }
+
+    protected transferHandle(
+        block: Block,
+        blockTransfer: Omit<BlockNested<T>, "to">,
+        factories: TransformFeatureFactory<T>[]
+    ): void {
+        const newBlock: BlockNested<T> = {
+            to: -1,
+            ...blockTransfer
+        }
+
+        this.formerOutputWindow = this.transformer.getOutputWindow()
+        this.transformer.setOutputWindow(newBlock.value)
+
+        const handled = this.transformer.handleFactories(factories, block)
+        if (handled) {
+            this.blockTransfer = newBlock
+        }
+    }
+
+    protected transferDoneHandle(): void {
+        if (!this.blockTransfer) return
+
+        const index = this.transformer.getIndex() - 1
+
+        this.transformer.setOutputWindow(this.formerOutputWindow)
+        this.blockTransfer.to = this.transformer.getBlocks()[index].to
+
+        delete this.formerOutputWindow
+        delete this.blockTransfer
     }
 
     protected abstract claim(block: Block): boolean

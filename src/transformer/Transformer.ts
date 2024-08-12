@@ -92,7 +92,7 @@ export class Transformer<T = Block> {
         return this.factories
     }
 
-    public handleFactories(factories: TransformFeatureFactory<T>[], block: Block): void {
+    public handleFactories(factories: TransformFeatureFactory<T>[], block: Block): boolean {
         for (const factory of factories) {
             const feature = factory(this)
             const formerFeaturesLength = this.features.length
@@ -102,9 +102,11 @@ export class Transformer<T = Block> {
             if (!accepted) {
                 this.features.length = formerFeaturesLength
             } else {
-                return
+                return true
             }
         }
+
+        return false
     }
 
     protected doTransform(): void {
