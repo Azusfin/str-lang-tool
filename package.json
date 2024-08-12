@@ -9,7 +9,6 @@
     "dist/**/*.d.ts"
   ],
   "scripts": {
-    "start": "node .",
     "lint": "eslint --ext .ts",
     "build": "tsc --outDir dist",
     "test": "node dist/__tests__/"

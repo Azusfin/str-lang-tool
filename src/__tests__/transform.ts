@@ -1,5 +1,5 @@
 import { inspect } from "util"
-import type { TransformFeatureFactory, Block, BlockWithT, BlockNested, BlockScalar } from "../"
+import type { TransformFeatureFactory, Block, BlockWithT } from "../"
 import { Transformer, TransformFeature, TransformError, BlockType } from "../"
 import { numberFeatureSymbol, nameFeatureSymbol, operandFeatureSymbol, bracketFeatureSymbol, blocks } from "./read"
 
