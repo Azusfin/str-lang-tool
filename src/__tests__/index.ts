@@ -1,7 +1,8 @@
 import benny from "benny"
-import { Reader } from "../reader"
+import { Reader, Transformer } from "../"
 
-import { text, factories as readerFactories } from "./read"
+import { text, blocks, factories as readerFactories } from "./read"
+import { factories as transformerFactories } from "./transform"
 
 console.log()
 console.log(`Text Length: ${text.length}`)
@@ -10,6 +11,10 @@ benny.suite(
     benny.add("Read", () => {
         const reader = new Reader({ text, factories: readerFactories })
         return reader.read()
+    }),
+    benny.add("Transformer", () => {
+        const transformer = new Transformer({ blocks, factories: transformerFactories })
+        return transformer.transform()
     }),
     benny.cycle((_, summary) => {
         const progress = (

@@ -20,10 +20,11 @@ export interface BlockScalar extends BaseBlock {
     symbol: symbol
 }
 
-export interface BlockNested extends BaseBlock {
+export interface BlockNested<T = Block> extends BaseBlock {
     type: BlockType.NEST
-    value: Block[]
+    value: T[]
     symbol: symbol
 }
 
 export type Block = BlockDefault | BlockScalar | BlockNested
+export type BlockWithT<T> = BlockDefault | BlockScalar | BlockNested<T>
