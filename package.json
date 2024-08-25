@@ -5,8 +5,8 @@
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
   "files": [
-    "dist/**/*.js",
-    "dist/**/*.d.ts"
+    "dist/",
+    "!dist/__tests__/"
   ],
   "scripts": {
     "lint": "eslint --ext .ts",

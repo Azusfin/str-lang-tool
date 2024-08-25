@@ -2,3 +2,4 @@ dist/
 .vscode/
 node_modules/
 src/desktop.ini
+str-lang-tool-*.tgz
