@@ -1,211 +1,244 @@
-import { inspect } from "util"
-import type { TransformFeatureFactory, Block, BlockWithT } from "../"
-import { Transformer, TransformFeature, TransformError, BlockType } from "../"
-import { numberFeatureSymbol, nameFeatureSymbol, operandFeatureSymbol, bracketFeatureSymbol, blocks } from "./read"
+import type { Literal, Parent, Point } from "unist"
+import type {
+    TransformFeatureContext, TransformFeatureContextNoData,
+    TransformFeatureContextWithData, TransformFeatureSuccessor
+} from "../"
+import type * as Read from "./read"
+import { clonePoint, clonePosition, Transformer, TransformFeature } from "../"
 
-type OP = "+" | "-" | "*" | "/" | "^"
-
-const enum OPERAND_LEVEL {
-    ADD_SUB,
-    MULTI_DIV,
-    EXPONENT
+export const enum OPERAND_LEVEL {
+    AddSub /* Reserved */,
+    MultiDiv,
+    Exp
 }
 
-function getOperandLevel(op: OP): OPERAND_LEVEL {
-    if (op === "^") return OPERAND_LEVEL.EXPONENT
-    else if (op === "*" || op === "/") return OPERAND_LEVEL.MULTI_DIV
-    else return OPERAND_LEVEL.ADD_SUB
+export type Node = Read.Number | Read.Operand | OpLevel | Bracket | Function
+
+export interface Calculator extends Parent {
+    type: "calculator"
+    children: Node[]
 }
 
-interface BaseNode {
-    from: number
-    to: number
-}
-
-interface NumberNode extends BaseNode {
-    type: "num"
-    num: number
-}
-
-interface OperandNode extends BaseNode {
-    type: "op"
-    op: OP
-}
-
-interface OpLevelNode extends BaseNode {
+export interface OpLevel extends Literal, Parent {
     type: "oplevel"
-    level: OPERAND_LEVEL
-    val: Node[]
+    value: OPERAND_LEVEL
+    children: Node[]
 }
 
-interface BracketNode extends BaseNode {
+export interface Bracket extends Parent {
     type: "bracket"
-    val: Node[]
+    children: Node[]
 }
 
-interface FunctionNode extends BaseNode {
-    type: "func"
-    name: string
-    val: Node[]
+export interface Function extends Literal, Parent {
+    type: "function"
+    value: string
+    children: Node[]
 }
 
-type Node = NumberNode | OperandNode | OpLevelNode | BracketNode | FunctionNode
+type IR = Read.Calculator
+type IA = Read.Calculator | Read.Bracket
+type OR = Calculator
+type OA = Calculator | OpLevel | Bracket | Function
 
-const functionFeatureSymbol = Symbol("FUNCTION")
-class FunctionTransformFeature extends TransformFeature<Node> {
-    protected steps = 0
+export class NumberTransformFeature extends TransformFeature<IR, IA, OR, OA> {
+    protected done = false
 
-    protected claim(block: Block): boolean {
-        let bool = false
-        if (this.steps === 0 && block.type === BlockType.SCALAR && block.symbol === nameFeatureSymbol) bool = true
-        if (this.steps === 1 && block.type === BlockType.NEST && block.symbol === bracketFeatureSymbol) bool = true
-        if (this.steps >= 2) return false
+    public handle(node: Read.Node): boolean {
+        if (this.done) return false
+        if (node.type !== "number") return false
 
-        if (!bool) throw new TransformError("Unexpected block on function transform feature")
-
-        this.steps++
-        return bool
-    }
-
-    public handle(blocks: BlockWithT<Node>[]): void {
-        const funcNode: FunctionNode = {
-            type: "func",
-            name: blocks[0].value as string,
-            val: blocks[1].value as Node[],
-            from: blocks[0].from,
-            to: blocks[1].to
-        }
-
-        this.transformer.add(funcNode)
-    }
-}
-
-const opLevelFeatureSymbol = Symbol("OPLEVEL")
-type OperandTransformFeatureFactory = (transformer: Transformer<Node>) => OperandTransformFeature
-abstract class OperandTransformFeature extends TransformFeature<Node> {
-    protected abstract level: OPERAND_LEVEL
-    protected abstract factory: OperandTransformFeatureFactory
-
-    protected prevVal?: BlockWithT<Node>
-
-    public setInitialVal(val: BlockWithT<Node>): void {
-        if (this.blocks.length !== 0) throw new TransformError("Tried to set initial val not on first")
-        this.prevVal = val
-        this.blocks.push(val)
-    }
-
-    protected claim(block: Block): boolean {
-        if (block.type === BlockType.DEFAULT) throw new TransformError("Unexpected character block")
-        if (block.type === BlockType.SCALAR) {
-            if (block.symbol === nameFeatureSymbol) {
-                this.transferHandle(block, {
-                    type: BlockType.NEST,
-                    value: [],
-                    symbol: functionFeatureSymbol,
-                    from: block.from
-                }, [t => new FunctionTransformFeature(t)])
-            } else if (block.symbol === operandFeatureSymbol) {
-                if (getOperandLevel(block.value as OP) < this.level) {
-                    if (this.level === OPERAND_LEVEL.ADD_SUB) {
-                        throw new TransformError("Tried to go to a level shallower than add sub")
-                    }
-                    return false
-                } else if (getOperandLevel(block.value as OP) > this.level) {
-                    this.transferHandle(block, {
-                        type: BlockType.NEST,
-                        value: [],
-                        symbol: opLevelFeatureSymbol,
-                        from: this.prevVal!.from
-                    }, [() => {
-                        const feature = this.factory(this.transformer)
-                        feature.setInitialVal(this.prevVal!)
-                        return feature
-                    }])
-
-                    this.blocks.pop()
-                    this.prevVal = this.blockTransfer
-                }
-            }
-        }
-
+        const number = { ...node }
+        if (number.position) number.position = clonePosition(number.position)
+        this.ctx.output.children.push(number)
+        this.done = true
         return true
     }
+}
 
-    protected handle(blocks: BlockWithT<Node>[]): void {
-        for (const block of blocks) {
-            if (block.type === BlockType.SCALAR) {
-                if (block.symbol === numberFeatureSymbol) {
-                    const numNode: NumberNode = {
-                        type: "num",
-                        num: Number(block.value),
-                        from: block.from,
-                        to: block.to
-                    }
-                    this.transformer.add(numNode)
-                } else {
-                    const opNode: OperandNode = {
-                        type: "op",
-                        op: block.value as OP,
-                        from: block.from,
-                        to: block.to
-                    }
-                    this.transformer.add(opNode)
+export class OperandTransformFeature extends TransformFeature<IR, IA, OR, OA> {
+    protected done = false
+    protected opLevelDone = false
+
+    protected opLevel?: OpLevel
+    protected startPoint?: Point
+
+    public handle(node: Read.Node): boolean | TransformFeatureSuccessor<IR, IA, OR, OpLevel> {
+        if (!this.opLevel) {
+            if (this.done) return false
+            if (node.type !== "operand") return false
+            this.done = true
+        } else if (this.opLevelDone) {
+            return false
+        } else if (node.type !== "operand") {
+            return {
+                output: this.opLevel,
+                features: <GetFeatures<OpLevel>> getFeatures
+            }
+        }
+
+        let currentLevel = OPERAND_LEVEL.AddSub
+        if (this.ctx.output.type === "oplevel") {
+            currentLevel = this.ctx.output.value
+        }
+
+        let currentOpLevel = currentLevel+1
+        if (this.opLevel) {
+            currentOpLevel = this.opLevel.value
+        }
+
+        let opLevel = OPERAND_LEVEL.AddSub
+        if (node.value === 4 /*EXP*/) {
+            opLevel = OPERAND_LEVEL.Exp
+        } else if (node.value > 1 /*>SUB*/) {
+            opLevel = OPERAND_LEVEL.MultiDiv
+        }
+
+        if (currentLevel === opLevel) {
+            const operand = { ...node }
+            if (operand.position) operand.position = clonePosition(operand.position)
+            this.ctx.output.children.push(operand)
+            this.opLevelDone = true
+            return true
+        } else if (currentLevel > opLevel) {
+            return false
+        } else if (this.opLevel) {
+            if (currentOpLevel === opLevel) {
+                const operand = { ...node }
+                if (operand.position) operand.position = clonePosition(operand.position)
+                this.opLevel.children.push(operand)
+                return true
+            } else {
+                return {
+                    output: this.opLevel,
+                    features: <GetFeatures<OpLevel>> getFeatures
                 }
-            } else if (block.type === BlockType.NEST) {
-                if (block.symbol === functionFeatureSymbol) {
-                    this.transformer.add(block.value[0])
-                } else if (block.symbol === opLevelFeatureSymbol) {
-                    const opLevelNode: OpLevelNode = {
-                        type: "oplevel",
-                        level: this.level+1,
-                        val: block.value,
-                        from: block.from,
-                        to: block.to
-                    }
-                    this.transformer.add(opLevelNode)
-                } else {
-                    const bracketNode: BracketNode = {
-                        type: "bracket",
-                        val: block.value,
-                        from: block.from,
-                        to: block.to
-                    }
-                    this.transformer.add(bracketNode)
+            }
+        }
+
+        const lastNode = this.ctx.output.children.pop()
+        this.opLevel = {
+            type: "oplevel",
+            value: currentOpLevel,
+            children: []
+        }
+
+        this.ctx.output.children.push(this.opLevel)
+        if (lastNode) {
+            this.opLevel.children.push(lastNode)
+            this.startPoint = lastNode.position?.start
+        }
+
+        return {
+            output: this.opLevel,
+            features: <GetFeatures<OpLevel>> getFeatures
+        }
+    }
+
+    public exit(): void {
+        if (this.opLevel) {
+            const lastNode = this.opLevel.children[this.opLevel.children.length - 1]
+            const endPoint = lastNode.position?.end
+            if (this.startPoint && endPoint) {
+                this.opLevel.position = {
+                    start: clonePoint(this.startPoint),
+                    end: clonePoint(endPoint)
                 }
             }
         }
     }
+}
 
-    protected handleBlock(block: Block): void {
-        super.handleBlock(block)
+export class BracketTransformFeature extends TransformFeature<IR, IA, OR, OA> {
+    protected done = false
 
-        if (block.type === BlockType.SCALAR && block.symbol === operandFeatureSymbol) return
+    public handle(node: Read.Node): boolean | TransformFeatureSuccessor<IR, IA, OR, Bracket> {
+        if (this.done) return false
+        if (node.type !== "bracket") return false
 
-        this.prevVal = this.blocks[this.blocks.length - 1]
+        const bracket: Bracket = {
+            type: "bracket",
+            children: []
+        }
+
+        if (node.position) bracket.position = clonePosition(node.position)
+
+        this.ctx.output.children.push(bracket)
+
+        return {
+            input: node,
+            output: bracket,
+            features: <GetFeatures<Bracket>> getFeatures
+        }
     }
 }
 
-class ExponentTransformFeature extends OperandTransformFeature {
-    protected level: OPERAND_LEVEL = OPERAND_LEVEL.EXPONENT
-    protected factory: OperandTransformFeatureFactory = () => { throw new TransformError("Tried to go a level deeper than exponent") }
+export class FunctionTransformFeature extends TransformFeature<IR, IA, OR, OA> {
+    protected done = false
+
+    protected function?: Function
+    protected startPoint?: Point
+
+    public handle(node: Read.Node): boolean | TransformFeatureSuccessor<IR, IA, OR, Function> {
+        if (this.done) return false
+        if (!this.function) {
+            if (node.type !== "name") return false
+            this.startPoint = node.position?.start
+            this.function = {
+                type: "function",
+                value: node.value,
+                children: []
+            }
+            this.ctx.output.children.push(this.function)
+            return true
+        }
+        if (node.type !== "bracket") return false
+
+        this.done = true
+        const endPoint = node.position?.end
+
+        if (this.startPoint && endPoint) {
+            this.function.position = {
+                start: clonePoint(this.startPoint),
+                end: clonePoint(endPoint)
+            }
+        }
+
+        return {
+            input: node,
+            output: this.function,
+            features: <GetFeatures<Function>> getFeatures
+        }
+    }
 }
 
-class MultiDivTransformFeature extends OperandTransformFeature {
-    protected level: OPERAND_LEVEL = OPERAND_LEVEL.MULTI_DIV
-    protected factory: OperandTransformFeatureFactory = t => new ExponentTransformFeature(t)
+export type GetFeatures<A extends Parent> = (
+        ctx: TransformFeatureContextNoData<TransformFeatureContext<IR, IA, OR, A>>,
+        node: IA["children"][number]
+    ) => TransformFeature<IR, IA, OR, A>[]
+
+export const getFeatures: GetFeatures<OA> = (pCtx, node) => {
+    pCtx.data = {}
+    const ctx = <TransformFeatureContextWithData<typeof pCtx>> pCtx
+
+    if (node.type === "number") return [new NumberTransformFeature(ctx)]
+    else if (node.type === "bracket") return [new BracketTransformFeature(ctx)]
+    else if (node.type === "name") return [new FunctionTransformFeature(ctx)]
+    else if (node.type === "operand") return [new OperandTransformFeature(ctx)]
+    else return []
 }
 
-class AddSubTransformFeature extends OperandTransformFeature {
-    protected level: OPERAND_LEVEL = OPERAND_LEVEL.ADD_SUB
-    protected factory: OperandTransformFeatureFactory = t => new MultiDivTransformFeature(t)
+export function transform(inputRoot: IR): Promise<Calculator> {
+    const transformer = new Transformer({
+        inputRoot,
+        rootFeatures: <GetFeatures<Calculator>> getFeatures,
+        outputRoot: {
+            type: "calculator",
+            children: []
+        }
+    })
+
+    if (inputRoot.position) transformer.outputRoot.position = clonePosition(inputRoot.position)
+
+    return transformer.transform()
 }
-
-export const factories: TransformFeatureFactory<Node>[] = [
-    (transformer: Transformer<Node>) => new AddSubTransformFeature(transformer)
-]
-
-const transformer = new Transformer<Node>({ blocks, factories })
-const nodes = transformer.transform()
-
-console.log("Transformer")
-console.log(inspect(nodes, { depth: Infinity }))

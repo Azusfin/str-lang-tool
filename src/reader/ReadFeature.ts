@@ -1,129 +1,35 @@
-import type { Reader } from "."
-import type { Block, BlockNested } from "../blocks"
-import { BlockType } from "../blocks"
-import { ReadError } from "."
+import type { Parent, Point } from "unist"
 
-export abstract class BaseReadFeature {
-    protected reader: Reader
-
-    public constructor(reader: Reader) {
-        this.reader = reader
-    }
-
-    protected release(): void {
-        this.reader.release(this)
-    }
-
-    /** How should the feature handle release event */
-    public abstract handleRelease(): void
-
-    /** How should the feature handle every character */
-    public abstract next(char: string, pos: number): void
-
-    /** How should the feature handle first character */
-    public abstract accept(char: string, pos: number): boolean
+export interface ReadFeatureContext<R extends Parent, A extends Parent, D = Record<string, unknown>> {
+    root: R
+    ancestor: A
+    data: D
+    offset(): number
+    length(): number
+    point(offset?: number): Point
+    char(): string
+    char(offset?: number): string | undefined
+    codePoint(): number
+    codePoint(offset?: number): number| undefined
 }
 
-export abstract class ScalarReadFeature extends BaseReadFeature {
-    protected symbol: symbol
-    protected starterChars: string[]
-    protected value: string = ""
-    protected startPos: number = 0
+export type ReadFeatureContextNoData<C extends ReadFeatureContext<Parent, Parent>>
+    = Omit<C, "data"> & Partial<Pick<C, "data">>
 
-    public constructor(reader: Reader, symbol: symbol, starterChars: string[]) {
-        super(reader)
-        this.symbol = symbol
-        this.starterChars = starterChars
-    }
+export type ReadFeatureContextWithData<C extends ReadFeatureContextNoData<ReadFeatureContext<Parent, Parent>>>
+    = Omit<C, "data"> & Required<Pick<C, "data">>
 
-    /** How should the scalar feature handle every character */
-    public abstract handle(char: string, pos: number): string | undefined
-
-    public accept(char: string, pos: number): boolean {
-        if (this.starterChars.includes(char)) {
-            this.startPos = pos
-            return true
-        }
-        return false
-    }
-
-    public next(char: string, pos: number): void {
-        const handledChar = this.handle(char, pos)
-        if (handledChar === undefined) this.release()
-        else this.value += handledChar
-    }
-
-    public handleRelease(): void {
-        this.reader.addBlock({
-            type: BlockType.SCALAR,
-            value: this.value,
-            symbol: this.symbol,
-            from: this.startPos,
-            to: this.reader.getPos()
-        })
-    }
-
-    protected release(): void {
-        this.reader.rollback()
-        super.release()
-    }
+export interface ReadFeatureSuccessor<R extends Parent, A extends Parent, D = Record<string, unknown>> {
+    features(ctx: ReadFeatureContextNoData<ReadFeatureContext<R, A>>): ReadFeature<R, A, D>[]
+    ancestor?: A
 }
 
-export class NestedReadFeature extends BaseReadFeature {
-    protected symbol: symbol
-    protected brackets: [string, string]
-    protected factories: ReadFeatureFactory[]
+export abstract class ReadFeature<R extends Parent, A extends Parent, D = Record<string, unknown>> {
+    public constructor(public readonly ctx: ReadFeatureContext<R, A, D>) {}
 
-    protected startWindow?: Block[]
-    protected block: BlockNested
-
-    protected done = false
-
-    public constructor(reader: Reader, symbol: symbol, brackets: [string, string], factories: ReadFeatureFactory[]) {
-        super(reader)
-        this.symbol = symbol
-        this.brackets = brackets
-        this.factories = factories
-        this.block = {
-            type: BlockType.NEST,
-            value: [],
-            symbol: this.symbol,
-            from: 0,
-            to: 0
-        }
-    }
-
-    protected release(): void {
-        this.done = true
-        super.release()
-    }
-
-    public accept(char: string, pos: number): boolean {
-        if (char === this.brackets[0]) {
-            this.block.from = pos
-            this.startWindow = this.reader.getWindow()
-            this.reader.addBlock(this.block)
-            this.reader.setWindow(this.block.value)
-            return true
-        }
-        return false
-    }
-
-    public next(char: string, pos: number): void {
-        if (pos === this.block.from) return
-        if (char === this.brackets[1]) this.release()
-        else this.reader.handleFactories(this.factories, char, pos)
-    }
-
-    public handleRelease(): void {
-        if (!this.done) {
-            throw new ReadError("Unexpected end of line", this.reader.getPos() - 1)
-        }
-
-        this.block.to = this.reader.getPos()
-        this.reader.setWindow(this.startWindow)
-    }
+    public exit(): Promise<void> | void {}
+    public abstract handle(): (
+        Promise<boolean | ReadFeatureSuccessor<R, Parent>> |
+        boolean | ReadFeatureSuccessor<R, Parent>
+    )
 }
-
-export type ReadFeature = BaseReadFeature
-export type ReadFeatureFactory = (reader: Reader) => ReadFeature

@@ -10,7 +10,8 @@
   ],
   "scripts": {
     "lint": "eslint --ext .ts",
-    "build": "tsc --outDir dist",
+    "clean": "rimraf -rf dist",
+    "build": "npm run clean && tsc --outDir dist",
     "test": "node dist/__tests__/"
   },
   "repository": {
@@ -36,8 +37,11 @@
     "@types/node": "^22.1.0",
     "@typescript-eslint/eslint-plugin": "^5.18.0",
     "@typescript-eslint/parser": "^5.18.0",
+    "benny": "^3.7.1",
     "eslint": "^8.13.0",
-    "typescript": "4.6.x",
-    "benny": "^3.7.1"
+    "typescript": "4.6.x"
+  },
+  "dependencies": {
+    "@types/unist": "^3.0.3"
   }
 }

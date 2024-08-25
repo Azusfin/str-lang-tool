@@ -5,134 +5,102 @@
 [![NPM Version](https://img.shields.io/npm/v/str-lang-tool.svg?maxAge=3600)](https://www.npmjs.com/package/str-lang-tool)
 [![NPM Downloads](https://img.shields.io/npm/dt/str-lang-tool.svg?maxAge=3600)](https://www.npmjs.com/package/str-lang-tool)
 
+> Uses [Unist](https://github.com/syntax-tree/unist) (Universal Syntax Tree)
+
 ## How
 - [How to read text and parse it into blocks](#how-to-read)
 - [How to transform blocks into AST](#how-to-transform)
 
 ### How To Read
 ```js
-const { Reader, BaseReadFeature, ScalarReadFeature, NestedReadFeature } = require("str-lang-tool")
+import { Reader, ReadFeature } from "str-lang-tool"
 
-// Symbol for scalar impl feature
-const scalarSymbol = Symbol("SCALAR")
-// The feature will only start to accept if it's the starting characters
-const startChars = [...startCharacters]
-class ScalarImplReadFeature extends ScalarReadFeature {
-    constructor(reader) {
-        super(reader, scalarSymbol, startChars)
-    }
+class ReadFeature1 extends ReadFeature {
+    handle() {
+        if (this.done) return false /* Release feature after done */
 
-    // Return the char if the char is accepted, else don't return anything to release the feature
-    handle(char) {
-        if (...) return char
+        const char = this.ctx.char()
+
+        if (char === /* Some character */) {
+            this.ctx.ancestor.children.push(/* A Node */)
+            this.done = true
+
+            return true
+        } else if (char === /* Some another character */) {
+            this.done = true
+
+            const ancestor = /* A Parent Node */
+            this.ctx.ancestor.children.push(ancestor)
+
+            // Feature succession (Let another feature take handle)
+            return {
+                ancestor,
+                features: ctx => [new ReadFeature2(ctx)]
+            }
+        } else {
+            return false
+        }
     }
 }
 
-// Symbol for nested impl feature
-const nestedSymbol = Symbol("NESTED")
-// The bracket open and bracket close for nested parsing
-const brackets = [bracket1, bracket2]
-class NestedImplReadFeature extends NestedReadFeature {
-    constructor(reader, factories) {
-        super(reader, nestedSymbol, brackets, factories)
+class ReadFeature2 extends ReadFeature {
+    handle() {
+        const char = this.ctx.char()
+
+        if (char === /* Some another character */) return false
+
+        this.ctx.ancestor.children.push(/* Another Node */)
+        return true
     }
 }
 
-// Feature to ignore some chars
-class IgnoreReadFeature extends BaseReadFeature {
-    // Accept if the char is ignored characters
-    accept(char) {
-        if (...) return true
-        return false
-    }
+const reader = new Reader({
+    text: /* Some text */,
+    root: /* Output tree */,
+    rootFeatures: ctx => [new ReadFeature1(ctx)]
+})
 
-    // Release the feature immediately
-    next() { this.release() }
-    handleRelease() { }
-}
-
-const factories = [
-    (reader) => new IgnoreReadFeature(reader),
-    (reader) => new NestedImplReadFeature(reader, factories),
-    (reader) => new ScalarImplReadFeature(reader)
-]
-
-const text = ...
-const reader = new Reader({ text, factories })
-
-const blocks = reader.read()
+const tree = await reader.read()
 ```
 
 ### How To Transform
 ```js
-const { Transformer, TransformFeature, BlockType } = require("str-lang-tool")
+import { Transformer, TransformFeature } from "str-lang-tool"
 
-class Impl1TransformFeature extends TransformFeature {
-    // Claim the block if it met the condition
-    claim(block) {
-        if (...) return true
-        return false
-    }
+class TransformFeature1 extends TransformFeature {
+    handle(node) {
+        if (this.done) return false /* Release feature after done */
 
-    // Handle the claimed blocks
-    handle(blocks) {
-        for (const block of blocks) {
-            ...
-        }
-    }
-}
+        if (node.type === /* A Node type */) {
+            this.ctx.output.children.push(node)
+        } else if (node.type === /* Another Node type */) {
+            const output = /* A Parent Node */
+            this.ctx.output.children.push(output)
 
-const factories1 = [
-    (transformer) => new Impl1TransformFeature(transformer)
-]
-
-// Feature with steps
-class Impl2TransformFeature extends TransformFeature {
-    constructor(transformer) {
-        super(transformer)
-        this.steps = 0
-    }
-
-    claim(block) {
-        bool = false
-
-        if (this.steps === 0 && ...) bool = true
-        else if (this.steps === 1) {
-            // Transfer the block handling to another feature
-            this.transferHandle(block, {
-                type: BlockType.NEST,
-                value: [],
-                symbol: ...,
-                from: block.from
-            }, factories1)
-            if (this.blockTransfer) bool = true
-        } else if (this.steps === 2) {
-            return false
+            // Feature succession (Let another feature handle nested input)
+            return {
+                input: node, output,
+                features: ctx => [new TransformFeature2(ctx)]
+            }
         }
 
-        if (!bool) throw ...
-
-        this.steps++
+        this.done = true
         return true
     }
+}
 
-    handle(blocks) {
-        if (blocks.length !== 2) throw ...
-
-        const first = blocks[0]
-        const second = blocks[1]
-
-        second.value.unshift(first)
-        this.transformer.add(second)
+class TransformFeature2 extends TransformFeature {
+    handle(node) {
+        // Just push whatever
+        this.ctx.output.children.push(node)
     }
 }
 
-const factories = [
-    (transformer) => new Impl2TransformFeature(transformer)
-]
+const transformer = new Transformer({
+    inputRoot: /* Input tree */,
+    outputRoot: /* Output tree */,
+    rootFeatures: ctx => [new TransformFeature1(ctx)]
+})
 
-const blocks = ...
-const transformer = new Transformer({ blocks, factories })
-
-const nodes = transformer.transform()
+const tree = await transformer.transform()
 ```

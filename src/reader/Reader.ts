@@ -1,115 +1,202 @@
-import type { ReadFeature, ReadFeatureFactory } from "."
-import type { Block, BlockDefault } from "../blocks"
-import { ReadError } from "."
-import { BlockType } from "../blocks"
+import type { Parent, Point } from "unist"
+import type { ReadFeature, ReadFeatureContext, ReadFeatureContextNoData, ReadFeatureSuccessor } from "."
 
-export interface ReaderOptions {
+const CARRIAGE_RETURN_CODE_POINT = "\r".codePointAt(0)
+const LINE_FEED_CODE_POINT = "\n".codePointAt(0)
+
+export interface ReaderOptions<R extends Parent> {
     text: string
-    factories: ReadFeatureFactory[]
+    root: R
+    rootFeatures(ctx: ReadFeatureContextNoData<ReadFeatureContext<R, R>>): ReadFeature<R, R>[]
 }
 
-export class Reader {
-    protected text: string
-    protected factories: ReadFeatureFactory[]
-    protected features: ReadFeature[] = []
-    protected blocks: Block[] = []
-    protected position = 0
-    protected hasRead = false
+export class Reader<R extends Parent> {
+    public readonly text: string
+    public readonly root: R
 
-    protected blocksWindow?: Block[]
+    public readonly rootFeatures:
+        (ctx: ReadFeatureContextNoData<ReadFeatureContext<R, R>>) => ReadFeature<R, R>[]
 
-    public constructor(options: ReaderOptions) {
+    public offset = 0
+    public hasRead = false
+
+    protected readonly codePoints: number[]
+    protected readonly lineStarts: number[] = [0]
+    protected readonly features: ReadFeature<R, Parent>[] = []
+
+    public constructor(options: ReaderOptions<R>) {
         this.text = options.text
-        this.factories = options.factories
-    }
+        this.root = options.root
+        this.rootFeatures = options.rootFeatures
 
-    public read(): Block[] {
-        if (!this.hasRead) {
-            this.doRead()
-            this.hasRead = true
+        const codePoints = [...this.text]
+        const codePointsLength = codePoints.length
+        this.codePoints = new Array(codePointsLength)
+
+        for (let i = 0; i < codePointsLength; i++) {
+            const codePoint = codePoints[i].codePointAt(0)!
+            this.codePoints[i] = codePoint
+
+            if (codePoint === LINE_FEED_CODE_POINT) {
+                this.lineStarts.push(i+1)
+            } else if (codePoint === CARRIAGE_RETURN_CODE_POINT) {
+                const nextCodePoint = codePoints[++i]?.codePointAt(0)
+                if (nextCodePoint !== undefined) this.codePoints[i] = nextCodePoint
+                if (nextCodePoint === LINE_FEED_CODE_POINT) {
+                    this.lineStarts.push(i+1)
+                } else {
+                    this.lineStarts.push(i)
+                }
+            }
         }
-
-        return this.blocks
     }
 
-    public rollback(steps: number = 1): void {
-        const stepsToRollback = Math.min(steps, this.position)
-        this.position -= stepsToRollback
+    public read(): Promise<R> {
+        if (!this.hasRead) {
+            return this.iterate().then(() => this.root)
+        }
+        return Promise.resolve(this.root)
     }
 
-    public jump(steps: number = 1): void {
-        const stepsToJump = Math.min(steps, this.text.length - this.position)
-        this.position += stepsToJump
-    }
+    public point(offset: number = this.offset): Point {
+        let line = 1
 
-    public release(instance: ReadFeature): void {
-        if (this.features.length <= 0) throw new ReadError("No feature to be released", this.position)
-        const feature = this.features.pop()
-        if (instance !== feature) throw new ReadError("Illegal feature release call", this.position)
-        feature.handleRelease()
-    }
+        if (this.lineStarts.length === 1 || offset < this.lineStarts[1]) {
+            line = 1
+        } else if (offset >= this.lineStarts[this.lineStarts.length - 1]) {
+            line = this.lineStarts.length
+        } else {
+            let right = this.lineStarts.length
+            let left = 0
+            line = Math.floor(right / 2)
 
-    public addBlock(block: Block): void {
-        const window = this.blocksWindow ?? this.blocks
-        window.push(block)
-    }
+            while (this.lineStarts[line] !== offset && right >= left) {
+                if (right - left === 1) {
+                    line = right
+                    break
+                }
 
-    public getPos(): number {
-        return this.position
-    }
+                if (this.lineStarts[line] > offset) {
+                    right = line
+                    line = left + Math.floor((right - left) / 2)
+                    if (right - left <= 2 && this.lineStarts[line] <= offset) {
+                        line++
+                        break
+                    }
+                } else {
+                    left = line
+                    line = left + Math.floor((right - left) / 2)
+                    if (right - left <= 2 && this.lineStarts[line] > offset) {
+                        break
+                    }
+                }
+            }
 
-    public getWindow(): Block[] | undefined {
-        return this.blocksWindow
-    }
-
-    public setWindow(window: Block[] | undefined) {
-        this.blocksWindow = window
-    }
-
-    public handleFactories(factories: ReadFeatureFactory[], char: string, pos: number): void {
-        for (const factory of factories) {
-            const feature = factory(this)
-            const accepted = feature.accept(char, pos)
-
-            if (accepted) {
-                this.features.push(feature)
-                feature.next(char, pos)
-                return
+            if (this.lineStarts[line] === offset) {
+                line++
             }
         }
 
-        const defaultBlock: BlockDefault = {
-            type: BlockType.DEFAULT,
-            value: char,
-            from: this.position,
-            to: this.position
-        }
+        const column = offset - this.lineStarts[line - 1] + 1
 
-        this.addBlock(defaultBlock)
+        return { line, column, offset }
     }
 
-    protected doRead(): void {
-        while (this.position < this.text.length) {
-            this.next()
-        }
-
-        for (let i = this.features.length; i > 0; i--) {
-            const feature = this.features[i-1]
-            this.release(feature)
+    protected context<A extends Parent>(ancestor: A)
+        : ReadFeatureContextNoData<ReadFeatureContext<R, A>> {
+        return {
+            root: this.root,
+            ancestor: ancestor,
+            offset: () => this.offset,
+            length: () => this.codePoints.length,
+            point: (offset: number = this.offset) => this.point(offset),
+            char: (offset: number = this.offset) => String.fromCodePoint(this.codePoints[offset]),
+            codePoint: (offset: number = this.offset) => this.codePoints[offset],
         }
     }
 
-    protected next(): void {
-        const pos = this.position
-        const char = this.text[this.position]
-
-        if (this.features.length === 0) {
-            this.handleFactories(this.factories, char, pos)
-        } else {
-            const feature = this.features[this.features.length - 1]
-            feature.next(char, pos)
+    protected release(): (
+        Promise<ReadFeature<R, Parent> | undefined> |
+        ReadFeature<R, Parent> | undefined
+    ) {
+        const promise = this.features.pop()?.exit()
+        if (promise instanceof Promise) {
+            return promise.then(() => this.features[this.features.length - 1])
         }
+        return this.features[this.features.length - 1]
+    }
 
-        this.jump()
+    protected async iterate(): Promise<void> {
+        const codePointsLength = this.codePoints.length
+
+        while (!this.hasRead) {
+            if (this.offset >= codePointsLength) {
+                for (let i = this.features.length; i > 0; i--) {
+                    const promise = this.release()
+                    if (promise instanceof Promise) await promise
+                }
+
+                this.hasRead = true
+                break
+            }
+
+            let feature: ReadFeature<R, Parent> | undefined = this.features[this.features.length - 1]
+            let features: ReadFeature<R, Parent>[] | undefined
+
+            if (!feature) {
+                features = this.rootFeatures(this.context(this.root))
+            }
+
+            while (feature || features) {
+                if (feature) {
+                    const resPromise = feature.handle()
+                    const res = resPromise instanceof Promise ? await resPromise : resPromise
+
+                    if (typeof res === "boolean") {
+                        if (!res) {
+                            const releasePromise = this.release()
+                            feature = (
+                                releasePromise instanceof Promise ? await releasePromise : releasePromise
+                            )
+                            if (!feature) features = this.rootFeatures(this.context(this.root))
+                            continue
+                        }
+                    } else {
+                        features = res.features(this.context(res.ancestor ?? feature.ctx.ancestor))
+                    }
+
+                    feature = undefined
+                } else if (features) {
+                    if (!features.length) {
+                        feature = undefined
+                        features = undefined
+                        continue
+                    }
+
+                    let res: boolean | ReadFeatureSuccessor<R, Parent> = false
+
+                    for (feature of features) {
+                        const resPromise = feature.handle()
+                        res = resPromise instanceof Promise ? await resPromise : resPromise
+                        if (res) break
+                    }
+
+                    if (feature && res) {
+                        this.features.push(feature)
+                        if (typeof res !== "boolean") {
+                            features = res.features(this.context(res.ancestor ?? feature.ctx.ancestor))
+                        } else {
+                            features = undefined
+                        }
+                    } else {
+                        features = undefined
+                    }
+
+                    feature = undefined
+                }
+            }
+
+            this.offset++
+        }
     }
 }
