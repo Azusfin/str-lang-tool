@@ -110,8 +110,12 @@ export class Reader<R extends Parent> {
             offset: () => this.offset,
             length: () => this.codePoints.length,
             point: (offset: number = this.offset) => this.point(offset),
-            char: (offset: number = this.offset) => String.fromCodePoint(this.codePoints[offset]),
-            codePoint: (offset: number = this.offset) => this.codePoints[offset],
+            codePoint: (offset: number = this.offset) => this.codePoints[offset] ?? -1,
+            char: (offset: number = this.offset) => {
+                return this.codePoints[offset]
+                    ? String.fromCodePoint(this.codePoints[offset])
+                    : ""
+            }
         }
     }
 

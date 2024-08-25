@@ -10,7 +10,7 @@ export interface ReadFeatureContext<R extends Parent, A extends Parent, D = Reco
     char(): string
     char(offset?: number): string | undefined
     codePoint(): number
-    codePoint(offset?: number): number| undefined
+    codePoint(offset?: number): number | undefined
 }
 
 export type ReadFeatureContextNoData<C extends ReadFeatureContext<Parent, Parent>>

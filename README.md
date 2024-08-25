@@ -8,8 +8,8 @@
 > Uses [Unist](https://github.com/syntax-tree/unist) (Universal Syntax Tree)
 
 ## How
-- [How to read text and parse it into blocks](#how-to-read)
-- [How to transform blocks into AST](#how-to-transform)
+- [How to read text and parse it into a tree](#how-to-read)
+- [How to transform tree into another tree](#how-to-transform)
 
 ### How To Read
 ```js

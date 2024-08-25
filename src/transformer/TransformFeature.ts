@@ -12,7 +12,6 @@ export interface TransformFeatureContext<
     data: D
     index(): number
     length(): number
-    node(): IA["children"][number]
     node(index?: number): IA["children"][number] | undefined
 }
 
