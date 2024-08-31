@@ -1,15 +1,18 @@
+/* eslint-disable typescript/no-non-null-assertion */
+/* eslint-disable typescript/no-use-before-define */
+
 import type { Literal, Parent, Point } from "unist"
 import type {
     TransformFeatureContext, TransformFeatureContextNoData,
     TransformFeatureContextWithData, TransformFeatureSuccessor
-} from "../"
-import type * as Read from "./read"
-import { clonePoint, clonePosition, Transformer, TransformFeature } from "../"
+} from ".."
+import { clonePoint, clonePosition, Transformer, TransformFeature } from ".."
+import * as Read from "./read"
 
-export const enum OPERAND_LEVEL {
-    AddSub /* Reserved */,
-    MultiDiv,
-    Exp
+export const enum OperandLevel {
+    AddSub = 0 /* Reserved */,
+    MultiDiv = 1,
+    Exp = 2
 }
 
 export type Node = Read.Number | Read.Operand | OpLevel | Bracket | Function
@@ -21,7 +24,7 @@ export interface Calculator extends Parent {
 
 export interface OpLevel extends Literal, Parent {
     type: "oplevel"
-    value: OPERAND_LEVEL
+    value: OperandLevel
     children: Node[]
 }
 
@@ -73,25 +76,25 @@ export class OperandTransformFeature extends TransformFeature<IR, IA, OR, OA> {
         } else if (node.type !== "operand") {
             return {
                 output: this.opLevel,
-                features: <GetFeatures<OpLevel>> getFeatures
+                features: getFeatures as GetFeatures<OpLevel>
             }
         }
 
-        let currentLevel = OPERAND_LEVEL.AddSub
+        let currentLevel = OperandLevel.AddSub
         if (this.ctx.output.type === "oplevel") {
             currentLevel = this.ctx.output.value
         }
 
-        let currentOpLevel = currentLevel+1
+        let currentOpLevel: OperandLevel = currentLevel + 1
         if (this.opLevel) {
             currentOpLevel = this.opLevel.value
         }
 
-        let opLevel = OPERAND_LEVEL.AddSub
-        if (node.value === 4 /*EXP*/) {
-            opLevel = OPERAND_LEVEL.Exp
-        } else if (node.value > 1 /*>SUB*/) {
-            opLevel = OPERAND_LEVEL.MultiDiv
+        let opLevel = OperandLevel.AddSub
+        if (node.value === Read.Operands.Exp /* EXP */) {
+            opLevel = OperandLevel.Exp
+        } else if (node.value > Read.Operands.Sub /* >SUB */) {
+            opLevel = OperandLevel.MultiDiv
         }
 
         if (currentLevel === opLevel) {
@@ -108,11 +111,11 @@ export class OperandTransformFeature extends TransformFeature<IR, IA, OR, OA> {
                 if (operand.position) operand.position = clonePosition(operand.position)
                 this.opLevel.children.push(operand)
                 return true
-            } else {
-                return {
-                    output: this.opLevel,
-                    features: <GetFeatures<OpLevel>> getFeatures
-                }
+            }
+
+            return {
+                output: this.opLevel,
+                features: getFeatures as GetFeatures<OpLevel>
             }
         }
 
@@ -131,13 +134,13 @@ export class OperandTransformFeature extends TransformFeature<IR, IA, OR, OA> {
 
         return {
             output: this.opLevel,
-            features: <GetFeatures<OpLevel>> getFeatures
+            features: getFeatures as GetFeatures<OpLevel>
         }
     }
 
     public exit(): void {
         if (this.opLevel) {
-            const lastNode = this.opLevel.children[this.opLevel.children.length - 1]
+            const lastNode = this.opLevel.children.at(-1)!
             const endPoint = lastNode.position?.end
             if (this.startPoint && endPoint) {
                 this.opLevel.position = {
@@ -168,7 +171,7 @@ export class BracketTransformFeature extends TransformFeature<IR, IA, OR, OA> {
         return {
             input: node,
             output: bracket,
-            features: <GetFeatures<Bracket>> getFeatures
+            features: getFeatures as GetFeatures<Bracket>
         }
     }
 }
@@ -207,31 +210,31 @@ export class FunctionTransformFeature extends TransformFeature<IR, IA, OR, OA> {
         return {
             input: node,
             output: this.function,
-            features: <GetFeatures<Function>> getFeatures
+            features: getFeatures as GetFeatures<Function>
         }
     }
 }
 
 export type GetFeatures<A extends Parent> = (
-        ctx: TransformFeatureContextNoData<TransformFeatureContext<IR, IA, OR, A>>,
-        node: IA["children"][number]
-    ) => TransformFeature<IR, IA, OR, A>[]
+    ctx: TransformFeatureContextNoData<TransformFeatureContext<IR, IA, OR, A>>,
+    node: IA["children"][number]
+) => TransformFeature<IR, IA, OR, A>[]
 
 export const getFeatures: GetFeatures<OA> = (pCtx, node) => {
     pCtx.data = {}
-    const ctx = <TransformFeatureContextWithData<typeof pCtx>> pCtx
+    const ctx = pCtx as TransformFeatureContextWithData<typeof pCtx>
 
+    // eslint-disable-next-line unicorn/prefer-switch
     if (node.type === "number") return [new NumberTransformFeature(ctx)]
     else if (node.type === "bracket") return [new BracketTransformFeature(ctx)]
     else if (node.type === "name") return [new FunctionTransformFeature(ctx)]
-    else if (node.type === "operand") return [new OperandTransformFeature(ctx)]
-    else return []
+    return [new OperandTransformFeature(ctx)]
 }
 
-export function transform(inputRoot: IR): Promise<Calculator> {
+export async function transform(inputRoot: IR): Promise<Calculator> {
     const transformer = new Transformer({
         inputRoot,
-        rootFeatures: <GetFeatures<Calculator>> getFeatures,
+        rootFeatures: getFeatures as GetFeatures<Calculator>,
         outputRoot: {
             type: "calculator",
             children: []

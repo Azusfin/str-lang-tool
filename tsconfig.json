@@ -1,11 +1,12 @@
 {
     "include": ["src/**/*.ts"],
     "compilerOptions": {
-        "target": "ES2020",
-        "module": "CommonJS",
+        "target": "ES2021",
+        "module": "Node16",
         "strict": true,
         "declaration": true,
-        "moduleResolution": "Node",
+        "sourceMap": true,
+        "moduleResolution": "Node16",
         "skipLibCheck": true,
         "noImplicitAny": true,
         "esModuleInterop": true,

@@ -3,3 +3,5 @@ dist/
 node_modules/
 src/desktop.ini
 str-lang-tool-*.tgz
+isolate-*.log
+profile.txt

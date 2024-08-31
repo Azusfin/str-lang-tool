@@ -1,4 +1,4 @@
-import type { Parent } from "unist"
+import type { Parent, Node } from "unist"
 
 export interface TransformFeatureContext<
     IR extends Parent, IA extends Parent,
@@ -35,16 +35,37 @@ export interface TransformFeatureSuccessor<
     output?: OA
 }
 
+// Allow for either sync / async method on transform feature
 export abstract class TransformFeature<
     IR extends Parent, IA extends Parent,
     OR extends Parent, OA extends Parent,
     D = Record<string, unknown>
 > {
-    public constructor(public readonly ctx: TransformFeatureContext<IR, IA, OR, OA, D>) {}
+    constructor(public ctx: TransformFeatureContext<IR, IA, OR, OA, D>) {}
 
+    // Handle feature on exiting (release)
+    // eslint-disable-next-line typescript/no-empty-function
     public exit(): Promise<void> | void {}
+
+    // Handler of the feature on current character
     public abstract handle(node: IA["children"][number]): (
         Promise<boolean | TransformFeatureSuccessor<IR, Parent, OR, Parent>> |
         boolean | TransformFeatureSuccessor<IR, Parent, OR, Parent>
     )
+}
+
+// Transform feature to handle input change
+export class TransformerNestedInputHandler<
+    IR extends Parent, OR extends Parent
+> extends TransformFeature<IR, Parent, OR, Parent> {
+    constructor(
+        ctx: TransformFeatureContext<IR, Parent, OR, Parent>,
+        public readonly features: (ctx: TransformFeatureContextNoData<
+            TransformFeatureContext<IR, Parent, OR, Parent>
+        >, node: Node) => TransformFeature<IR, Parent, OR, Parent>[]
+    ) { super(ctx) }
+
+    public handle(): TransformFeatureSuccessor<IR, Parent, OR, Parent> {
+        return { features: this.features }
+    }
 }

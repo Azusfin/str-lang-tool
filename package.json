@@ -9,10 +9,12 @@
     "!dist/__tests__/"
   ],
   "scripts": {
-    "lint": "eslint --ext .ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "clean": "rimraf -rf dist",
     "build": "npm run clean && tsc --outDir dist",
-    "test": "node dist/__tests__/"
+    "test": "node dist/__tests__/index",
+    "bench": "node dist/__tests__/bench"
   },
   "repository": {
     "type": "git",
@@ -33,15 +35,13 @@
   },
   "homepage": "https://github.com/Azusfin/str-lang-tool#readme",
   "devDependencies": {
-    "@azusfin/eslint-config": "^1.2.1",
+    "@azusfin/eslint-config": "^2.2.1",
     "@types/node": "^22.1.0",
-    "@typescript-eslint/eslint-plugin": "^5.18.0",
-    "@typescript-eslint/parser": "^5.18.0",
     "benny": "^3.7.1",
-    "eslint": "^8.13.0",
-    "typescript": "4.6.x"
+    "typescript": "^5.5.4"
   },
   "dependencies": {
     "@types/unist": "^3.0.3"
-  }
+  },
+  "packageManager": "npm@10.8.3+sha512.d08425c8062f56d43bb8e84315864218af2492eb769e1f1ca40740f44e85bd148969382d651660363942e5909cb7ffcbef7ca0ae963ddc2c57a51243b4da8f56"
 }

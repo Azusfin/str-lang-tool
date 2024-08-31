@@ -24,10 +24,15 @@ export interface ReadFeatureSuccessor<R extends Parent, A extends Parent, D = Re
     ancestor?: A
 }
 
+// Allow for either sync or async method on read feature
 export abstract class ReadFeature<R extends Parent, A extends Parent, D = Record<string, unknown>> {
-    public constructor(public readonly ctx: ReadFeatureContext<R, A, D>) {}
+    constructor(public ctx: ReadFeatureContext<R, A, D>) {}
 
+    // Handle feature on exiting (release)
+    // eslint-disable-next-line typescript/no-empty-function
     public exit(): Promise<void> | void {}
+
+    // Handler of the feature on current character
     public abstract handle(): (
         Promise<boolean | ReadFeatureSuccessor<R, Parent>> |
         boolean | ReadFeatureSuccessor<R, Parent>

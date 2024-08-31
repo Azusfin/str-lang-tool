@@ -1,9 +1,16 @@
-import type { Node, Parent, Point, Position } from "unist"
+/* eslint-disable promise/prefer-await-to-then */
+/* eslint-disable typescript/strict-boolean-expressions */
+/* eslint-disable no-await-in-loop */
+/* eslint-disable typescript/no-non-null-assertion */
+
+import type { Parent, Point, Position } from "unist"
+
+import { TransformerNestedInputHandler } from "./TransformFeature"
 import type {
+    TransformFeature,
     TransformFeatureContext, TransformFeatureContextNoData,
     TransformFeatureContextWithData, TransformFeatureSuccessor
 } from "."
-import { TransformFeature } from "./TransformFeature"
 
 export interface TransformerOptions<IR extends Parent, OR extends Parent> {
     inputRoot: IR
@@ -25,235 +32,204 @@ export class Transformer<IR extends Parent, OR extends Parent> {
 
     public hasTransformed = false
 
-    protected indexes: WeakMap<Parent, number> = new WeakMap()
+    protected indexes: WeakMap<Parent, number> = new WeakMap<Parent, number>()
     protected features: TransformFeature<IR, Parent, OR, Parent>[] = []
 
-    public constructor(options: TransformerOptions<IR, OR>) {
+    constructor(options: TransformerOptions<IR, OR>) {
         this.inputRoot = options.inputRoot
         this.outputRoot = options.outputRoot
+
+        // eslint-disable-next-line typescript/unbound-method
         this.rootFeatures = options.rootFeatures
+
         this.indexes.set(this.inputRoot, 0)
     }
 
     public get indexRoot(): number {
-        return this.indexes.get(this.inputRoot)!
+        return this.indexes.get(this.inputRoot) ?? 0
     }
 
-    public transform(): Promise<OR> {
-        if (!this.hasTransformed) {
-            return this.iterate().then(() => this.outputRoot)
-        }
-        return Promise.resolve(this.outputRoot)
+    public async transform(): Promise<OR> {
+        if (!this.hasTransformed) await this.iterate()
+        return this.outputRoot
     }
 
-    protected context<IA extends Parent, OA extends Parent>(input: IA, output: OA)
-        : TransformFeatureContextNoData<TransformFeatureContext<IR, IA, OR, OA>> {
+    protected context<IA extends Parent, OA extends Parent>(input: IA, output: OA):
+    TransformFeatureContextNoData<TransformFeatureContext<IR, IA, OR, OA>> {
         return {
             inputRoot: this.inputRoot,
-            input: input,
+            input,
             outputRoot: this.outputRoot,
-            output: output,
+            output,
             index: () => this.indexes.get(input) ?? 0,
             length: () => input.children.length,
-            node: (index: number = this.indexes.get(input) ?? 0) => {
-                return input.children[index]
-            }
+            node: (index: number = this.indexes.get(input) ?? 0) => input.children[index]
         }
     }
 
     protected release(): (
         Promise<TransformFeature<IR, Parent, OR, Parent> | undefined> |
         TransformFeature<IR, Parent, OR, Parent> | undefined
-     ) {
+    ) {
         const feature = this.features.pop()
-        const promise = feature?.exit()
+        const exitPromise = feature?.exit()
 
-        if (promise instanceof Promise) {
-            return promise.then(() => {
-                const lastFeature = this.features[this.features.length - 1]
-                if (feature && lastFeature && feature.ctx.input !== lastFeature.ctx.input) {
-                    this.indexes.delete(feature.ctx.input)
-                    this.indexes.set(lastFeature.ctx.input, lastFeature.ctx.index()+1)
-                }
+        const handleRelease = (): TransformFeature<IR, Parent, OR, Parent> | undefined => {
+            const lastFeature = this.features.at(-1)
+            if (feature && lastFeature && feature.ctx.input !== lastFeature.ctx.input) {
+                this.indexes.delete(feature.ctx.input)
+                this.indexes.set(lastFeature.ctx.input, lastFeature.ctx.index() + 1)
+            }
 
-                return lastFeature
-            })
+            return lastFeature
         }
 
-        const lastFeature = this.features[this.features.length - 1]
-        if (feature && lastFeature && feature.ctx.input !== lastFeature.ctx.input) {
-            this.indexes.delete(feature.ctx.input)
-            this.indexes.set(lastFeature.ctx.input, lastFeature.ctx.index()+1)
+        if (exitPromise instanceof Promise) {
+            return exitPromise.then(handleRelease)
         }
 
-        return lastFeature
+        return handleRelease()
     }
 
     protected async iterate(): Promise<void> {
-        let currentFeature: TransformFeature<IR, Parent, OR, Parent> | undefined
-        let currentInput: Parent = this.inputRoot
-        let currentLength = currentInput.children.length
-        let currentNode = this.inputRoot.children[0]
-        let currentIndex = 0
+        let input: Parent = this.inputRoot
+        let length = input.children.length
+        let index = this.indexes.get(this.inputRoot)!
+        let node = input.children[index]
 
+        let feature: TransformFeature<IR, Parent, OR, Parent> | undefined
+        let features: TransformFeature<IR, Parent, OR, Parent>[] | undefined
+        features = this.rootFeatures(this.context(this.inputRoot, this.outputRoot), node)
+
+        // Ensure the input components
+        const ensureInput = (newInput: Parent): void => {
+            if (input === newInput) return
+
+            input = newInput
+            length = input.children.length
+            index = this.indexes.get(input) ?? 0
+            node = input.children[index]
+        }
+
+        // Handle feature releasing
+        const handleRelease = (tFeature: TransformFeature<IR, Parent, OR, Parent> | undefined): false => {
+            feature = tFeature
+
+            ensureInput(feature?.ctx.input ?? this.inputRoot)
+
+            if (!feature) {
+                features = this.rootFeatures(this.context(this.inputRoot, this.outputRoot), node)
+            }
+
+            return false
+        }
+
+        // Handle result from feature handle
+        const handleRes = (res: boolean | TransformFeatureSuccessor<IR, Parent, OR, Parent>): (
+            Promise<boolean> | boolean
+        ) => {
+            if (typeof res === "boolean") {
+                features = undefined
+
+                if (!res) {
+                    const releasePromise = this.release()
+
+                    if (releasePromise instanceof Promise) {
+                        return releasePromise.then(handleRelease)
+                    }
+
+                    return handleRelease(releasePromise)
+                }
+
+                return true
+            }
+
+            const output = res.output ?? feature!.ctx.output
+
+            ensureInput(res.input ?? feature!.ctx.input)
+
+            if (input === feature!.ctx.input) {
+                feature = undefined
+                features = res.features(this.context(input, output), node)
+            } else {
+                const pCtx = this.context(input, output)
+                pCtx.data = {}
+                const ctx = pCtx as TransformFeatureContextWithData<typeof pCtx>
+
+                // eslint-disable-next-line typescript/unbound-method
+                feature = new TransformerNestedInputHandler(ctx, res.features)
+                features = undefined
+
+                this.features.push(feature)
+            }
+
+            return false
+        }
+
+        // Iterate until root input is handled
         while (!this.hasTransformed) {
-            if (currentIndex >= currentLength) {
+            if (index >= length) {
                 for (let i = this.features.length; i > 0; i--) {
-                    const feature = this.features[i-1]
+                    feature = this.features.at(i - 1)
 
-                    if (feature.ctx.input !== currentInput) {
-                        currentFeature = feature
-                        currentInput = feature.ctx.input
-                        currentLength = currentInput.children.length
-                        currentIndex = this.indexes.get(currentInput) ?? 0
-                        currentNode = currentInput.children[currentIndex]
+                    if (feature?.ctx.input !== input) {
+                        if (feature) ensureInput(feature.ctx.input)
 
                         break
                     }
 
-                    const promise = this.release()
-                    if (promise instanceof Promise) await promise
+                    const releasePromise = this.release()
+                    if (releasePromise instanceof Promise) await releasePromise
                 }
 
-                if (!this.features.length) this.hasTransformed = true
+                if (this.features.length === 0) this.hasTransformed = true
 
                 continue
             }
 
-            let feature: TransformFeature<IR, Parent, OR, Parent> | undefined = currentFeature
-            let features: TransformFeature<IR, Parent, OR, Parent>[] | undefined
+            if (feature) {
+                const resPromise = feature.handle(node)
+                const res = resPromise instanceof Promise ? await resPromise : resPromise
 
-            if (!feature) {
-                features = this.rootFeatures(this.context(this.inputRoot, this.outputRoot), currentNode)
-            }
+                const handledPromise = handleRes(res)
+                const handled = handledPromise instanceof Promise ? await handledPromise : handledPromise
 
-            while (feature || features) {
-                if (feature) {
-                    const resPromise = feature.handle(currentNode)
-                    const res = resPromise instanceof Promise ? await resPromise : resPromise
+                if (!handled) continue
+            } else if (features) {
+                let res: boolean | TransformFeatureSuccessor<IR, Parent, OR, Parent> = false
 
-                    if (typeof res === "boolean") {
-                        if (!res) {
-                            const releasePromise = this.release()
-                            feature = (
-                                releasePromise instanceof Promise ? await releasePromise : releasePromise
-                            )
+                for (feature of features) {
+                    const resPromise = feature.handle(node)
+                    res = resPromise instanceof Promise ? await resPromise : resPromise
 
-                            features = undefined
+                    if (res) break
+                }
 
-                            if (!feature) {
-                                features = this.rootFeatures(
-                                    this.context(this.inputRoot, this.outputRoot), currentNode
-                                )
+                features = undefined
 
-                                currentFeature = undefined
-                                currentInput = this.inputRoot
-                            } else {
-                                currentFeature = feature
-                                currentInput = feature.ctx.input
-                            }
+                if (feature && res) {
+                    this.features.push(feature)
 
-                            currentIndex = this.indexes.get(currentInput) ?? 0
-                            currentNode = currentInput.children[currentIndex]
+                    const handledPromise = handleRes(res)
+                    const handled = handledPromise instanceof Promise
+                        ? await handledPromise
+                        : handledPromise
 
-                            continue
-                        }
-
-                        feature = undefined
-                        features = undefined
-                    } else {
-                        const input = res.input ?? feature.ctx.input
-                        const output = res.output ?? feature.ctx.output
-
-                        if (input !== feature.ctx.input) {
-                            const pCtx = this.context(input, output)
-                            pCtx.data = {}
-                            const ctx = <TransformFeatureContextWithData<typeof pCtx>> pCtx
-
-                            feature = new TransformerNestedInputHandler(ctx, res.features)
-                            features = undefined
-
-                            this.features.push(feature)
-
-                            currentFeature = feature
-                            currentInput = input
-                            currentIndex = 0
-                            currentNode = input.children[0]
-                        } else {
-                            feature = undefined
-                            features = res.features(this.context(input, output), currentNode)
-                        }
-                    }
-                } else if (features) {
-                    if (!features.length) {
-                        feature = undefined
-                        features = undefined
-                        continue
-                    }
-
-                    let res: boolean | TransformFeatureSuccessor<IR, Parent, OR, Parent> = false
-
-                    for (feature of features) {
-                        const resPromise = feature.handle(currentNode)
-                        res = resPromise instanceof Promise ? await resPromise : resPromise
-                        if (res) break
-                    }
-
-                    if (feature && res) {
-                        this.features.push(feature)
-                        if (typeof res !== "boolean") {
-                            const input = res.input ?? feature.ctx.input
-                            const output = res.output ?? feature.ctx.output
-
-                            if (input !== feature.ctx.input) {
-                                const pCtx = this.context(input, output)
-                                pCtx.data = {}
-                                const ctx = <TransformFeatureContextWithData<typeof pCtx>> pCtx
-
-                                feature = new TransformerNestedInputHandler(ctx, res.features)
-                                this.features.push(feature)
-
-                                features = undefined
-
-                                currentFeature = feature
-                                currentInput = input
-                                currentIndex = 0
-                                currentNode = input.children[0]
-                            } else {
-                                features = res.features(this.context(input, output), currentNode)
-                                feature = undefined
-                            }
-                        } else {
-                            currentFeature = feature
-                            feature = undefined
-                            features = undefined
-                        }
-                    } else {
-                        feature = undefined
-                        features = undefined
-                    }
+                    if (!handled) continue
+                } else {
+                    feature = this.features.at(-1)
                 }
             }
 
-            currentLength = currentInput.children.length
-            currentNode = currentInput.children[++currentIndex]
-            this.indexes.set(currentInput, currentIndex)
+            this.indexes.set(input, ++index)
+
+            // eslint-disable-next-line require-atomic-updates
+            node = input.children[index]
+
+            if (!feature && !features) {
+                features = this.rootFeatures(this.context(this.inputRoot, this.outputRoot), node)
+            }
         }
-    }
-}
-
-export class TransformerNestedInputHandler<
-    IR extends Parent, OR extends Parent
-> extends TransformFeature<IR, Parent, OR, Parent> {
-    public constructor(
-        ctx: TransformFeatureContext<IR, Parent, OR, Parent>,
-        public readonly features: (ctx: TransformFeatureContextNoData<
-            TransformFeatureContext<IR, Parent, OR, Parent>
-        >, node: Node) => TransformFeature<IR, Parent, OR, Parent>[]
-    ) { super(ctx) }
-
-    public handle(_: Node): TransformFeatureSuccessor<IR, Parent, OR, Parent> {
-        return { features: this.features }
     }
 }
 

@@ -1,7 +1,0 @@
-{
-    "extends": "@azusfin/eslint-config/node",
-    "overrides": [{
-        "files": "src/**/*.+(ts|tsx)",
-        "extends": "@azusfin/eslint-config/typescript/node"
-    }]
-}
